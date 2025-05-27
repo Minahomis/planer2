@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
@@ -92,7 +91,7 @@ class CalendarDataSource {
         return yearMonth.getDayOfMonthStartingFromMonday().map { date ->
             CalendarUiState.Date(
                 dayOfMonth = if (date.monthValue == yearMonth.monthValue) date.dayOfMonth.toString() else "",
-                isSelected = date.isEqual(LocalDate.now()) && date.monthValue == yearMonth.monthValue
+                isSelected = false // выделение теперь будет из ViewModel
             )
         }
     }
@@ -105,21 +104,42 @@ class CalendarViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(CalendarUiState.Init)
     val uiState: StateFlow<CalendarUiState> = _uiState.asStateFlow()
 
+    private val _selectedDay = MutableStateFlow(LocalDate.now())
+    val selectedDay: StateFlow<LocalDate> = _selectedDay.asStateFlow()
+
     init {
         loadMonth(_uiState.value.yearMonth)
     }
 
     private fun loadMonth(yearMonth: YearMonth) {
         viewModelScope.launch {
-            val dates = dataSource.getDates(yearMonth)
+            val dates = dataSource.getDates(yearMonth).map { date ->
+                val isSelected = date.dayOfMonth.isNotEmpty() &&
+                        date.dayOfMonth.toIntOrNull() == _selectedDay.value.dayOfMonth &&
+                        yearMonth.monthValue == _selectedDay.value.monthValue &&
+                        yearMonth.year == _selectedDay.value.year
+                date.copy(isSelected = isSelected)
+            }
             _uiState.update {
                 it.copy(yearMonth = yearMonth, dates = dates)
             }
         }
     }
 
-    fun toPreviousMonth(prevMonth: YearMonth) = loadMonth(prevMonth)
-    fun toNextMonth(nextMonth: YearMonth) = loadMonth(nextMonth)
+    fun toPreviousMonth(prevMonth: YearMonth) {
+        loadMonth(prevMonth)
+    }
+
+    fun toNextMonth(nextMonth: YearMonth) {
+        loadMonth(nextMonth)
+    }
+
+    fun selectDate(date: CalendarUiState.Date, yearMonth: YearMonth) {
+        if (date.dayOfMonth.isEmpty()) return
+        val newSelected = LocalDate.of(yearMonth.year, yearMonth.monthValue, date.dayOfMonth.toInt())
+        _selectedDay.value = newSelected
+        loadMonth(yearMonth)
+    }
 }
 
 // --- Функция получения дней недели с понедельника ---
@@ -191,10 +211,60 @@ fun DaysOfWeekHeader() {
     }
 }
 
+// --- Отдельный элемент даты ---
+@Composable
+fun ContentItem(
+    date: CalendarUiState.Date,
+    onClickListener: (CalendarUiState.Date) -> Unit,
+    isSunday: Boolean = false,
+    modifier: Modifier = Modifier,
+    isToday: Boolean = false,
+    isSelected: Boolean = false,
+) {
+    val borderModifier = if (isSelected) {
+        Modifier.border(
+            width = 2.dp,
+            color = Color(0xFF1565C0),
+            shape = RoundedCornerShape(8.dp)
+        )
+    } else {
+        Modifier
+    }
+
+    Box(
+        modifier = modifier
+            .then(borderModifier)
+            .clickable(enabled = date.dayOfMonth.isNotEmpty()) {
+                onClickListener(date)
+            },
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Text(
+            text = date.dayOfMonth,
+            style = MaterialTheme.typography.bodyMedium,
+            color = when {
+                isToday -> Color.White
+                isSelected -> Color(0xFF1565C0)
+                isSunday -> Color.Red
+                else -> Color.White
+            },
+            modifier = Modifier
+                .padding(8.dp)
+                .background(
+                    color = if (isToday) Color(0xFF1565C0) else Color.Transparent,
+                    shape = RoundedCornerShape(50)
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
 // --- Контент с датами ---
 @Composable
 fun Content(
     dates: List<CalendarUiState.Date>,
+    yearMonth: YearMonth,
+    selectedDay: LocalDate,
     onDateClickListener: (CalendarUiState.Date) -> Unit,
 ) {
     Column {
@@ -210,6 +280,15 @@ fun Content(
             ) {
                 repeat(7) { dayIndex ->
                     val item = if (index < dates.size) dates[index] else CalendarUiState.Date.Empty
+                    val isToday = item.dayOfMonth.isNotEmpty() &&
+                            yearMonth.year == LocalDate.now().year &&
+                            yearMonth.monthValue == LocalDate.now().monthValue &&
+                            item.dayOfMonth.toInt() == LocalDate.now().dayOfMonth
+                    val isSelected = item.dayOfMonth.isNotEmpty() &&
+                            yearMonth.year == selectedDay.year &&
+                            yearMonth.monthValue == selectedDay.monthValue &&
+                            item.dayOfMonth.toInt() == selectedDay.dayOfMonth
+
                     ContentItem(
                         date = item,
                         onClickListener = onDateClickListener,
@@ -217,7 +296,9 @@ fun Content(
                         modifier = Modifier
                             .weight(1f)
                             .height(120.dp)
-                            .padding(2.dp)
+                            .padding(2.dp),
+                        isToday = isToday,
+                        isSelected = isSelected
                     )
                     index++
                 }
@@ -226,42 +307,12 @@ fun Content(
     }
 }
 
-// --- Отдельный элемент даты ---
-@Composable
-fun ContentItem(
-    date: CalendarUiState.Date,
-    onClickListener: (CalendarUiState.Date) -> Unit,
-    isSunday: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .background(
-                color = if (date.isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
-            )
-            .clickable(enabled = date.dayOfMonth.isNotEmpty()) {
-                onClickListener(date)
-            },
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Text(
-            text = date.dayOfMonth,
-            style = MaterialTheme.typography.bodyMedium,
-            color = when {
-                date.isSelected -> MaterialTheme.colorScheme.onSecondaryContainer
-                isSunday -> Color.Red
-                else -> Color.White
-            },
-            modifier = Modifier.padding(10.dp)
-        )
-    }
-}
-
 // --- Основной экран календаря с свайпом ---
-
 @Composable
 fun CalendarScreen(viewModel: CalendarViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    val selectedDay by viewModel.selectedDay.collectAsState()
+
     var isSwiping by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -286,7 +337,7 @@ fun CalendarScreen(viewModel: CalendarViewModel) {
                 }
                 .background(Color(0xFF121212))
                 .padding(horizontal = 8.dp, vertical = 8.dp)
-                .padding(bottom = 48.dp) // отступ снизу, чтобы не перекрывать нижнюю панель
+                .padding(bottom = 48.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -301,24 +352,25 @@ fun CalendarScreen(viewModel: CalendarViewModel) {
                 DaysOfWeekHeader()
                 Content(
                     dates = uiState.dates,
-                    onDateClickListener = {
-                        // Обработка клика по дате
+                    yearMonth = uiState.yearMonth,
+                    selectedDay = selectedDay,
+                    onDateClickListener = { date ->
+                        viewModel.selectDate(date, uiState.yearMonth)
                     }
                 )
             }
         }
 
         // Нижняя панель с текстом и круглой кнопкой
-        val selectedDate = uiState.dates.firstOrNull { it.isSelected }
-        val day = selectedDate?.dayOfMonth ?: ""
-        val monthName = uiState.yearMonth.month.getDisplayName(TextStyle.SHORT, Locale("ru"))
+        val day = selectedDay.dayOfMonth.toString()
+        val monthName = selectedDay.month.getDisplayName(TextStyle.SHORT, Locale("ru"))
             .replaceFirstChar { it.uppercase() }
 
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp), // подняли выше
+                .padding(bottom = 24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -346,9 +398,9 @@ fun CalendarScreen(viewModel: CalendarViewModel) {
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .background(Color(0xFF1565C0), shape = CircleShape) // насыщенный синий
+                    .background(Color(0xFF1565C0), shape = CircleShape)
                     .clickable {
-                        // TODO: обработка нажатия
+                        // TODO: обработка нажатия на кнопку добавления события
                     },
                 contentAlignment = Alignment.Center
             ) {
