@@ -1,9 +1,12 @@
 package com.example.pla
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +30,8 @@ import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -147,6 +152,7 @@ fun Header(
             text = yearMonth.month.getDisplayName(TextStyle.FULL, Locale("ru"))
                 .replaceFirstChar { it.uppercase() } + " " + yearMonth.year,
             textAlign = TextAlign.Center,
+            fontSize = 24.sp,
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onBackground
@@ -252,50 +258,106 @@ fun ContentItem(
 }
 
 // --- Основной экран календаря с свайпом ---
+
 @Composable
 fun CalendarScreen(viewModel: CalendarViewModel) {
     val uiState by viewModel.uiState.collectAsState()
-    var isSwiping by remember { mutableStateOf(false) } // Флаг для предотвращения множественных свайпов
+    var isSwiping by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = { isSwiping = false }, // Сбрасываем флаг после завершения свайпа
-                    onHorizontalDrag = { change, dragAmount ->
-                        if (!isSwiping && kotlin.math.abs(dragAmount) > 100f) { // Увеличенный порог свайпа
-                            isSwiping = true // Устанавливаем флаг, чтобы предотвратить повторные свайпы
-                            if (dragAmount > 0) {
-                                viewModel.toPreviousMonth(uiState.yearMonth.minusMonths(1))
-                            } else {
-                                viewModel.toNextMonth(uiState.yearMonth.plusMonths(1))
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = { isSwiping = false },
+                        onHorizontalDrag = { change, dragAmount ->
+                            if (!isSwiping && kotlin.math.abs(dragAmount) > 100f) {
+                                isSwiping = true
+                                if (dragAmount > 0) {
+                                    viewModel.toPreviousMonth(uiState.yearMonth.minusMonths(1))
+                                } else {
+                                    viewModel.toNextMonth(uiState.yearMonth.plusMonths(1))
+                                }
                             }
+                            change.consumeAllChanges()
                         }
-                        change.consumeAllChanges()
+                    )
+                }
+                .background(Color(0xFF121212))
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .padding(bottom = 48.dp) // отступ снизу, чтобы не перекрывать нижнюю панель
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 32.dp)
+            ) {
+                Header(
+                    yearMonth = uiState.yearMonth,
+                    onPreviousMonthButtonClicked = viewModel::toPreviousMonth,
+                    onNextMonthButtonClicked = viewModel::toNextMonth
+                )
+                DaysOfWeekHeader()
+                Content(
+                    dates = uiState.dates,
+                    onDateClickListener = {
+                        // Обработка клика по дате
                     }
                 )
             }
-            .background(Color(0xFF121212))
-            .padding(horizontal = 8.dp, vertical = 8.dp)
-    ) {
-        Column(
+        }
+
+        // Нижняя панель с текстом и круглой кнопкой
+        val selectedDate = uiState.dates.firstOrNull { it.isSelected }
+        val day = selectedDate?.dayOfMonth ?: ""
+        val monthName = uiState.yearMonth.month.getDisplayName(TextStyle.SHORT, Locale("ru"))
+            .replaceFirstChar { it.uppercase() }
+
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 32.dp) // Увеличенный отступ сверху (16.dp + 16.dp)
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp), // подняли выше
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Header(
-                yearMonth = uiState.yearMonth,
-                onPreviousMonthButtonClicked = viewModel::toPreviousMonth,
-                onNextMonthButtonClicked = viewModel::toNextMonth
-            )
-            DaysOfWeekHeader()
-            Content(
-                dates = uiState.dates,
-                onDateClickListener = {
-                    // Обработка клика по дате
-                }
-            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .border(
+                        width = 1.dp,
+                        color = Color.White,
+                        shape = RoundedCornerShape(24.dp)
+                    )
+                    .background(Color.DarkGray.copy(alpha = 0.7f), shape = RoundedCornerShape(24.dp))
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = "Доб. событие $day $monthName",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(Color(0xFF1565C0), shape = CircleShape) // насыщенный синий
+                    .clickable {
+                        // TODO: обработка нажатия
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Добавить событие",
+                    tint = Color.White
+                )
+            }
         }
     }
 }
