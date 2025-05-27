@@ -223,7 +223,7 @@ fun ContentItem(
 ) {
     val borderModifier = if (isSelected) {
         Modifier.border(
-            width = 2.dp,
+            width = 1.dp,
             color = Color(0xFF1565C0),
             shape = RoundedCornerShape(8.dp)
         )
