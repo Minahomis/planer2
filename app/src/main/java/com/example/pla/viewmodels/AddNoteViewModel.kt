@@ -60,6 +60,12 @@ class AddNoteViewModel(
             }
         }
     }
+
+    fun deleteNote(note: NoteEntity) {
+        viewModelScope.launch {
+            repository.delete(note)
+        }
+    }
 }
 
 class AddNoteViewModelFactory(

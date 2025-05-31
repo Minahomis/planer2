@@ -26,6 +26,15 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.*
+import kotlinx.coroutines.launch
+
+private val colors = listOf(
+    Color(0xFF1A73E8), // Blue
+    Color(0xFFDB4437), // Red
+    Color(0xFF0F9D58), // Green
+    Color(0xFFF4B400), // Yellow
+    Color(0xFF7B1FA2)  // Purple
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,11 +44,12 @@ fun AddNoteScreen(
     noteId: Long? = null
 ) {
     val context = LocalContext.current
-    val database = NoteDatabase.getDatabase(context)
-    val repository = NoteRepository(database.noteDao())
+    val database = remember { NoteDatabase.getDatabase(context) }
+    val repository = remember { NoteRepository(database.noteDao()) }
     val viewModel: AddNoteViewModel = viewModel(
         factory = AddNoteViewModelFactory(repository, noteId)
     )
+    val scope = rememberCoroutineScope()
 
     val existingNote by viewModel.noteState.collectAsState()
 
@@ -48,11 +58,10 @@ fun AddNoteScreen(
     var endDate by remember { mutableStateOf(selectedDate) }
     var startTime by remember { mutableStateOf(LocalTime.now()) }
     var endTime by remember { mutableStateOf(LocalTime.now().plusHours(1)) }
-    var selectedColor by remember { mutableStateOf(Color(0xFF1A73E8)) }
+    var selectedColor by remember { mutableStateOf(colors[0]) }
     var showStartTimePicker by remember { mutableStateOf(false) }
     var showEndTimePicker by remember { mutableStateOf(false) }
 
-    // Загружаем данные существующей заметки
     LaunchedEffect(existingNote) {
         existingNote?.let { note ->
             title = note.title
@@ -64,41 +73,37 @@ fun AddNoteScreen(
         }
     }
 
-    val colors = listOf(
-        Color(0xFF1A73E8), // Blue
-        Color(0xFFDB4437), // Red
-        Color(0xFF0F9D58), // Green
-        Color(0xFFF4B400), // Yellow
-        Color(0xFF7B1FA2)  // Purple
-    )
+    val saveNote: () -> Unit = {
+        scope.launch {
+            viewModel.saveNote(
+                title = title,
+                startDate = startDate,
+                endDate = endDate,
+                startTime = startTime,
+                endTime = endTime,
+                color = selectedColor
+            )
+            navController.popBackStack()
+        }
+    }
+
+    val deleteNote: () -> Unit = {
+        scope.launch {
+            existingNote?.let { note ->
+                viewModel.deleteNote(note)
+                navController.popBackStack()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = {
-                            viewModel.saveNote(
-                                title = title,
-                                startDate = startDate,
-                                endDate = endDate,
-                                startTime = startTime,
-                                endTime = endTime,
-                                color = selectedColor
-                            )
-                            navController.popBackStack()
-                        },
-                        enabled = title.isNotBlank()
-                    ) {
-                        Text(if (noteId == null) "Сохранить" else "Обновить")
-                    }
-                }
+            AddNoteTopBar(
+                noteId = noteId,
+                title = title,
+                onClose = { navController.popBackStack() },
+                onSave = saveNote,
+                onDelete = deleteNote
             )
         }
     ) { paddingValues ->
@@ -109,84 +114,25 @@ fun AddNoteScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Title and Color Selection
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    placeholder = { Text("Название заметки") },
-                    modifier = Modifier.weight(1f),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent
-                    )
-                )
-                
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(start = 8.dp)
-                ) {
-                    colors.forEach { color ->
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .background(color, CircleShape)
-                                .clickable { selectedColor = color }
-                        ) {
-                            if (color == selectedColor) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(6.dp)
-                                        .background(Color.White, CircleShape)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            NoteInputSection(
+                title = title,
+                onTitleChange = { title = it },
+                selectedColor = selectedColor,
+                onColorSelect = { selectedColor = it }
+            )
 
             Divider()
 
-            // Date and Time Section
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Start Date & Time
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${startDate.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())}, " +
-                              "${startDate.format(DateTimeFormatter.ofPattern("d MMMM"))}"
-                    )
-                    TextButton(onClick = { showStartTimePicker = true }) {
-                        Text(startTime.format(DateTimeFormatter.ofPattern("HH:mm")))
-                    }
-                }
-
-                // End Date & Time
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${endDate.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())}, " +
-                              "${endDate.format(DateTimeFormatter.ofPattern("d MMMM"))}"
-                    )
-                    TextButton(onClick = { showEndTimePicker = true }) {
-                        Text(endTime.format(DateTimeFormatter.ofPattern("HH:mm")))
-                    }
-                }
-            }
+            DateTimeSection(
+                startDate = startDate,
+                endDate = endDate,
+                startTime = startTime,
+                endTime = endTime,
+                onStartTimeClick = { showStartTimePicker = true },
+                onEndTimeClick = { showEndTimePicker = true }
+            )
         }
 
-        // Time Pickers
         if (showStartTimePicker) {
             TimePickerDialog(
                 onDismiss = { showStartTimePicker = false },
@@ -209,6 +155,142 @@ fun AddNoteScreen(
                 initialHour = endTime.hour,
                 initialMinute = endTime.minute
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddNoteTopBar(
+    noteId: Long?,
+    title: String,
+    onClose: () -> Unit,
+    onSave: () -> Unit,
+    onDelete: () -> Unit
+) {
+    TopAppBar(
+        title = { },
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+            }
+        },
+        actions = {
+            if (noteId != null) {
+                TextButton(onClick = onDelete) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            }
+            TextButton(
+                onClick = onSave,
+                enabled = title.isNotBlank()
+            ) {
+                Text(if (noteId == null) "Сохранить" else "Обновить")
+            }
+        }
+    )
+}
+
+@Composable
+private fun NoteInputSection(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    selectedColor: Color,
+    onColorSelect: (Color) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            placeholder = { Text("Название заметки") },
+            modifier = Modifier.weight(1f),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent
+            )
+        )
+        
+        ColorSelector(
+            selectedColor = selectedColor,
+            onColorSelect = onColorSelect
+        )
+    }
+}
+
+@Composable
+private fun ColorSelector(
+    selectedColor: Color,
+    onColorSelect: (Color) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(start = 8.dp)
+    ) {
+        colors.forEach { color ->
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .background(color, CircleShape)
+                    .clickable { onColorSelect(color) }
+            ) {
+                if (color == selectedColor) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(6.dp)
+                            .background(Color.White, CircleShape)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DateTimeSection(
+    startDate: LocalDate,
+    endDate: LocalDate,
+    startTime: LocalTime,
+    endTime: LocalTime,
+    onStartTimeClick: () -> Unit,
+    onEndTimeClick: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        DateTimeRow(
+            date = startDate,
+            time = startTime,
+            onTimeClick = onStartTimeClick
+        )
+        
+        DateTimeRow(
+            date = endDate,
+            time = endTime,
+            onTimeClick = onEndTimeClick
+        )
+    }
+}
+
+@Composable
+private fun DateTimeRow(
+    date: LocalDate,
+    time: LocalTime,
+    onTimeClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "${date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())}, " +
+                  "${date.format(DateTimeFormatter.ofPattern("d MMMM"))}"
+        )
+        TextButton(onClick = onTimeClick) {
+            Text(time.format(DateTimeFormatter.ofPattern("HH:mm")))
         }
     }
 }
