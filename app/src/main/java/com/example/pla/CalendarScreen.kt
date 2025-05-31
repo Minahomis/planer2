@@ -33,6 +33,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import java.time.format.TextStyle
 import java.util.Locale
+import androidx.lifecycle.ViewModelProvider
+import androidx.compose.ui.platform.LocalContext
+import com.example.pla.components.NotesDialog
+import com.example.pla.components.NotesForDay
+import com.example.pla.data.NoteDatabase
+import com.example.pla.data.NoteEntity
+import com.example.pla.data.NoteRepository
 
 // --- Расширение для рисования нижней линии (бордера) ---
 fun Modifier.drawBottomBorder(strokeWidth: Float, color: Color) = this.then(
@@ -49,7 +56,8 @@ fun Modifier.drawBottomBorder(strokeWidth: Float, color: Color) = this.then(
 // --- UI State ---
 data class CalendarUiState(
     val yearMonth: YearMonth,
-    val dates: List<Date>
+    val dates: List<Date>,
+    val notes: Map<LocalDate, List<NoteEntity>> = emptyMap()
 ) {
     data class Date(
         val dayOfMonth: String,
@@ -98,7 +106,9 @@ class CalendarDataSource {
 }
 
 // --- ViewModel ---
-class CalendarViewModel : ViewModel() {
+class CalendarViewModel(
+    private val repository: NoteRepository
+) : ViewModel() {
     private val dataSource by lazy { CalendarDataSource() }
 
     private val _uiState = MutableStateFlow(CalendarUiState.Init)
@@ -106,6 +116,9 @@ class CalendarViewModel : ViewModel() {
 
     private val _selectedDay = MutableStateFlow(LocalDate.now())
     val selectedDay: StateFlow<LocalDate> = _selectedDay.asStateFlow()
+
+    private val _showNotesDialog = MutableStateFlow(false)
+    val showNotesDialog: StateFlow<Boolean> = _showNotesDialog.asStateFlow()
 
     init {
         loadMonth(_uiState.value.yearMonth)
@@ -120,10 +133,26 @@ class CalendarViewModel : ViewModel() {
                         yearMonth.year == _selectedDay.value.year
                 date.copy(isSelected = isSelected)
             }
-            _uiState.update {
-                it.copy(yearMonth = yearMonth, dates = dates)
-            }
+
+            // Загружаем заметки для всего месяца
+            val startDate = yearMonth.atDay(1)
+            val endDate = yearMonth.atEndOfMonth()
+            repository.getNotesForPeriod(startDate, endDate)
+                .collect { notes ->
+                    val notesMap = notes.groupBy { it.startDate }
+                    _uiState.update {
+                        it.copy(
+                            yearMonth = yearMonth,
+                            dates = dates,
+                            notes = notesMap
+                        )
+                    }
+                }
         }
+    }
+
+    fun toggleNotesDialog() {
+        _showNotesDialog.update { !it }
     }
 
     fun toPreviousMonth(prevMonth: YearMonth) {
@@ -139,6 +168,18 @@ class CalendarViewModel : ViewModel() {
         val newSelected = LocalDate.of(yearMonth.year, yearMonth.monthValue, date.dayOfMonth.toInt())
         _selectedDay.value = newSelected
         loadMonth(yearMonth)
+    }
+}
+
+class CalendarViewModelFactory(
+    private val repository: NoteRepository
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(CalendarViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return CalendarViewModel(repository) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
 
@@ -216,6 +257,8 @@ fun DaysOfWeekHeader() {
 fun ContentItem(
     date: CalendarUiState.Date,
     onClickListener: (CalendarUiState.Date) -> Unit,
+    notes: List<NoteEntity> = emptyList(),
+    currentDate: LocalDate,
     isSunday: Boolean = false,
     modifier: Modifier = Modifier,
     isToday: Boolean = false,
@@ -231,14 +274,14 @@ fun ContentItem(
         Modifier
     }
 
-    Box(
+    Column(
         modifier = modifier
             .then(borderModifier)
             .clickable(enabled = date.dayOfMonth.isNotEmpty()) {
                 onClickListener(date)
-            },
-        contentAlignment = Alignment.TopCenter
+            }
     ) {
+        // Число месяца
         Text(
             text = date.dayOfMonth,
             style = MaterialTheme.typography.bodyMedium,
@@ -256,6 +299,15 @@ fun ContentItem(
                 )
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         )
+
+        // Заметки
+        if (date.dayOfMonth.isNotEmpty()) {
+            NotesForDay(
+                notes = notes,
+                date = currentDate,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
     }
 }
 
@@ -265,6 +317,7 @@ fun Content(
     dates: List<CalendarUiState.Date>,
     yearMonth: YearMonth,
     selectedDay: LocalDate,
+    notes: Map<LocalDate, List<NoteEntity>>,
     onDateClickListener: (CalendarUiState.Date) -> Unit,
 ) {
     Column {
@@ -280,18 +333,19 @@ fun Content(
             ) {
                 repeat(7) { dayIndex ->
                     val item = if (index < dates.size) dates[index] else CalendarUiState.Date.Empty
-                    val isToday = item.dayOfMonth.isNotEmpty() &&
-                            yearMonth.year == LocalDate.now().year &&
-                            yearMonth.monthValue == LocalDate.now().monthValue &&
-                            item.dayOfMonth.toInt() == LocalDate.now().dayOfMonth
-                    val isSelected = item.dayOfMonth.isNotEmpty() &&
-                            yearMonth.year == selectedDay.year &&
-                            yearMonth.monthValue == selectedDay.monthValue &&
-                            item.dayOfMonth.toInt() == selectedDay.dayOfMonth
+                    val currentDate = if (item.dayOfMonth.isNotEmpty()) {
+                        LocalDate.of(yearMonth.year, yearMonth.monthValue, item.dayOfMonth.toInt())
+                    } else {
+                        null
+                    }
+                    val isToday = currentDate?.equals(LocalDate.now()) ?: false
+                    val isSelected = currentDate?.equals(selectedDay) ?: false
 
                     ContentItem(
                         date = item,
                         onClickListener = onDateClickListener,
+                        notes = currentDate?.let { notes[it] } ?: emptyList(),
+                        currentDate = currentDate ?: LocalDate.now(),
                         isSunday = (dayIndex == 6),
                         modifier = Modifier
                             .weight(1f)
@@ -309,9 +363,16 @@ fun Content(
 
 // --- Основной экран календаря с свайпом ---
 @Composable
-fun CalendarScreen(viewModel: CalendarViewModel) {
+fun CalendarScreen(
+    viewModel: CalendarViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = CalendarViewModelFactory(repository = NoteRepository(NoteDatabase.getDatabase(LocalContext.current).noteDao()))
+    ),
+    onAddNote: (LocalDate) -> Unit,
+    onEditNote: (NoteEntity) -> Unit = { }
+) {
     val uiState by viewModel.uiState.collectAsState()
     val selectedDay by viewModel.selectedDay.collectAsState()
+    val showNotesDialog by viewModel.showNotesDialog.collectAsState()
 
     var isSwiping by remember { mutableStateOf(false) }
 
@@ -354,8 +415,12 @@ fun CalendarScreen(viewModel: CalendarViewModel) {
                     dates = uiState.dates,
                     yearMonth = uiState.yearMonth,
                     selectedDay = selectedDay,
+                    notes = uiState.notes,
                     onDateClickListener = { date ->
                         viewModel.selectDate(date, uiState.yearMonth)
+                        if (uiState.notes[selectedDay]?.isNotEmpty() == true) {
+                            viewModel.toggleNotesDialog()
+                        }
                     }
                 )
             }
@@ -399,9 +464,7 @@ fun CalendarScreen(viewModel: CalendarViewModel) {
                 modifier = Modifier
                     .size(48.dp)
                     .background(Color(0xFF1565C0), shape = CircleShape)
-                    .clickable {
-                        // TODO: обработка нажатия на кнопку добавления события
-                    },
+                    .clickable { onAddNote(selectedDay) },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -410,6 +473,18 @@ fun CalendarScreen(viewModel: CalendarViewModel) {
                     tint = Color.White
                 )
             }
+        }
+
+        // Диалог с заметками
+        if (showNotesDialog) {
+            NotesDialog(
+                notes = uiState.notes[selectedDay] ?: emptyList(),
+                onDismiss = { viewModel.toggleNotesDialog() },
+                onNoteClick = { note ->
+                    viewModel.toggleNotesDialog()
+                    onEditNote(note)
+                }
+            )
         }
     }
 }
