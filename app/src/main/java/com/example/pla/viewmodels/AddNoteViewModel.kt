@@ -34,6 +34,67 @@ class AddNoteViewModel(
         }
     }
 
+    fun saveQuickNote(text: String, date: LocalDate) {
+        viewModelScope.launch {
+            val (title, startTime, endTime, color) = parseQuickNote(text)
+            val note = NoteEntity(
+                id = 0,
+                title = title,
+                startDate = date,
+                endDate = date,
+                startTime = startTime,
+                endTime = endTime,
+                color = color.toArgb()
+            )
+            repository.insert(note)
+        }
+    }
+
+    private fun parseQuickNote(text: String): QuickNoteData {
+        var startTime: LocalTime? = null
+        var endTime: LocalTime? = null
+        var color = Color(0xFF1A73E8) // Default blue color
+
+        // Поиск паттерна "с X до Y"
+        val rangePattern = "с (\\d{1,2}) до (\\d{1,2})".toRegex()
+        rangePattern.find(text)?.let { match ->
+            val (start, end) = match.destructured
+            startTime = LocalTime.of(start.toInt(), 0)
+            endTime = LocalTime.of(end.toInt(), 0)
+        }
+
+        // Если не найден паттерн "с X до Y", ищем "в X"
+        if (startTime == null) {
+            val singlePattern = "в (\\d{1,2})".toRegex()
+            singlePattern.find(text)?.let { match ->
+                val (hour) = match.destructured
+                startTime = LocalTime.of(hour.toInt(), 0)
+                endTime = startTime!!.plusHours(1)
+            }
+        }
+
+        // Поиск цвета
+        val colorPattern = "цвет (\\w+)".toRegex()
+        colorPattern.find(text)?.let { match ->
+            val (colorName) = match.destructured
+            color = when (colorName.lowercase()) {
+                "красный" -> Color(0xFFDB4437)
+                "зеленый", "зелёный" -> Color(0xFF0F9D58)
+                "желтый", "жёлтый" -> Color(0xFFF4B400)
+                "фиолетовый" -> Color(0xFF7B1FA2)
+                else -> Color(0xFF1A73E8) // синий по умолчанию
+            }
+        }
+
+        // Если время не указано, используем текущее время
+        if (startTime == null) {
+            startTime = LocalTime.now()
+            endTime = startTime!!.plusHours(1)
+        }
+
+        return QuickNoteData(text, startTime!!, endTime!!, color)
+    }
+
     fun saveNote(
         title: String,
         startDate: LocalDate,
@@ -67,6 +128,13 @@ class AddNoteViewModel(
         }
     }
 }
+
+private data class QuickNoteData(
+    val title: String,
+    val startTime: LocalTime,
+    val endTime: LocalTime,
+    val color: Color
+)
 
 class AddNoteViewModelFactory(
     private val repository: NoteRepository,

@@ -26,7 +26,6 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.*
-import kotlinx.coroutines.launch
 
 private val colors = listOf(
     Color(0xFF1A73E8), // Blue
@@ -49,7 +48,6 @@ fun AddNoteScreen(
     val viewModel: AddNoteViewModel = viewModel(
         factory = AddNoteViewModelFactory(repository, noteId)
     )
-    val scope = rememberCoroutineScope()
 
     val existingNote by viewModel.noteState.collectAsState()
 
@@ -74,25 +72,21 @@ fun AddNoteScreen(
     }
 
     val saveNote: () -> Unit = {
-        scope.launch {
-            viewModel.saveNote(
-                title = title,
-                startDate = startDate,
-                endDate = endDate,
-                startTime = startTime,
-                endTime = endTime,
-                color = selectedColor
-            )
-            navController.popBackStack()
-        }
+        viewModel.saveNote(
+            title = title,
+            startDate = startDate,
+            endDate = endDate,
+            startTime = startTime,
+            endTime = endTime,
+            color = selectedColor
+        )
+        navController.popBackStack()
     }
 
     val deleteNote: () -> Unit = {
-        scope.launch {
-            existingNote?.let { note ->
-                viewModel.deleteNote(note)
-                navController.popBackStack()
-            }
+        existingNote?.let { note ->
+            viewModel.deleteNote(note)
+            navController.popBackStack()
         }
     }
 

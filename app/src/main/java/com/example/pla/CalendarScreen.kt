@@ -1,12 +1,17 @@
 package com.example.pla
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +21,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,12 +42,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import java.time.format.TextStyle
 import java.util.Locale
 import androidx.lifecycle.ViewModelProvider
-import androidx.compose.ui.platform.LocalContext
 import com.example.pla.components.NotesDialog
 import com.example.pla.components.NotesForDay
 import com.example.pla.data.NoteDatabase
 import com.example.pla.data.NoteEntity
 import com.example.pla.data.NoteRepository
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.graphics.toArgb
+import java.time.LocalTime
+import androidx.compose.ui.platform.LocalFocusManager
+import com.example.pla.utils.SpeechRecognizerManager
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import com.example.pla.utils.PermissionManager
+import com.example.pla.utils.RequestRecordPermission
 
 // --- Расширение для рисования нижней линии (бордера) ---
 fun Modifier.drawBottomBorder(strokeWidth: Float, color: Color) = this.then(
@@ -169,7 +185,75 @@ class CalendarViewModel(
         _selectedDay.value = newSelected
         loadMonth(yearMonth)
     }
+
+    fun saveQuickNote(text: String, date: LocalDate) {
+        viewModelScope.launch {
+            val (title, startTime, endTime, color) = parseQuickNote(text)
+            val note = NoteEntity(
+                id = 0,
+                title = title,
+                startDate = date,
+                endDate = date,
+                startTime = startTime,
+                endTime = endTime,
+                color = color.toArgb()
+            )
+            repository.insert(note)
+        }
+    }
+
+    private fun parseQuickNote(text: String): QuickNoteData {
+        var startTime: LocalTime? = null
+        var endTime: LocalTime? = null
+        var color = Color(0xFF1A73E8) // Default blue color
+
+        // Поиск паттерна "с X до Y"
+        val rangePattern = "с (\\d{1,2}) до (\\d{1,2})".toRegex()
+        rangePattern.find(text)?.let { match ->
+            val (start, end) = match.destructured
+            startTime = LocalTime.of(start.toInt(), 0)
+            endTime = LocalTime.of(end.toInt(), 0)
+        }
+
+        // Если не найден паттерн "с X до Y", ищем "в X"
+        if (startTime == null) {
+            val singlePattern = "в (\\d{1,2})".toRegex()
+            singlePattern.find(text)?.let { match ->
+                val (hour) = match.destructured
+                startTime = LocalTime.of(hour.toInt(), 0)
+                endTime = startTime!!.plusHours(1)
+            }
+        }
+
+        // Поиск цвета
+        val colorPattern = "цвет (\\w+)".toRegex()
+        colorPattern.find(text)?.let { match ->
+            val (colorName) = match.destructured
+            color = when (colorName.lowercase()) {
+                "красный" -> Color(0xFFDB4437)
+                "зеленый", "зелёный" -> Color(0xFF0F9D58)
+                "желтый", "жёлтый" -> Color(0xFFF4B400)
+                "фиолетовый" -> Color(0xFF7B1FA2)
+                else -> Color(0xFF1A73E8) // синий по умолчанию
+            }
+        }
+
+        // Если время не указано, используем текущее время
+        if (startTime == null) {
+            startTime = LocalTime.now()
+            endTime = startTime!!.plusHours(1)
+        }
+
+        return QuickNoteData(text, startTime!!, endTime!!, color)
+    }
 }
+
+private data class QuickNoteData(
+    val title: String,
+    val startTime: LocalTime,
+    val endTime: LocalTime,
+    val color: Color
+)
 
 class CalendarViewModelFactory(
     private val repository: NoteRepository
@@ -361,6 +445,179 @@ fun Content(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
+@Composable
+fun QuickInputSection(
+    selectedDay: LocalDate,
+    viewModel: CalendarViewModel,
+    onAddNote: (LocalDate) -> Unit
+) {
+    var showQuickInput by remember { mutableStateOf(false) }
+    var quickNoteText by remember { mutableStateOf("") }
+    var showPermissionRequest by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Создаем и запоминаем SpeechRecognizerManager
+    val speechRecognizer = remember { SpeechRecognizerManager(context) }
+    val isListening by speechRecognizer.isListening.collectAsState()
+    val recognizedText by speechRecognizer.recognizedText.collectAsState()
+    val permissionManager = remember { PermissionManager(context) }
+
+    // Обработка распознанного текста
+    LaunchedEffect(recognizedText) {
+        if (recognizedText.isNotEmpty()) {
+            quickNoteText = recognizedText
+        }
+    }
+
+    if (showPermissionRequest) {
+        RequestRecordPermission {
+            showPermissionRequest = false
+            speechRecognizer.startListening()
+        }
+    }
+
+    val day = selectedDay.dayOfMonth.toString()
+    val monthName = selectedDay.month.getDisplayName(TextStyle.SHORT, Locale("ru"))
+        .replaceFirstChar { it.uppercase() }
+
+    // Для отслеживания двойного нажатия
+    var lastTapTime by remember { mutableStateOf(0L) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 24.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (showQuickInput) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = quickNoteText,
+                    onValueChange = { quickNoteText = it },
+                    placeholder = { Text("Например: 'Встреча в 15' или 'Обед с 13 до 14 цвет зеленый'") },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            if (quickNoteText.isNotBlank()) {
+                                scope.launch {
+                                    viewModel.saveQuickNote(quickNoteText, selectedDay)
+                                    quickNoteText = ""
+                                    showQuickInput = false
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                }
+                            }
+                        }
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.White,
+                        unfocusedBorderColor = Color.White,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedPlaceholderColor = Color.Gray,
+                        unfocusedPlaceholderColor = Color.Gray
+                    ),
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                if (isListening) {
+                                    speechRecognizer.stopListening()
+                                } else {
+                                    if (permissionManager.hasRecordAudioPermission()) {
+                                        speechRecognizer.startListening()
+                                    } else {
+                                        showPermissionRequest = true
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (isListening) Icons.Default.Mic else Icons.Default.MicOff,
+                                contentDescription = if (isListening) "Остановить запись" else "Начать запись",
+                                tint = if (isListening) MaterialTheme.colorScheme.primary else Color.Gray
+                            )
+                        }
+                    }
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .border(
+                        width = 1.dp,
+                        color = Color.White,
+                        shape = RoundedCornerShape(24.dp)
+                    )
+                    .background(Color.DarkGray.copy(alpha = 0.7f), shape = RoundedCornerShape(24.dp))
+                    .combinedClickable(
+                        onClick = { showQuickInput = true },
+                        onDoubleClick = {
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastTapTime < 3000) { // 3 секунды для двойного нажатия
+                                showQuickInput = true
+                                if (permissionManager.hasRecordAudioPermission()) {
+                                    speechRecognizer.startListening()
+                                } else {
+                                    showPermissionRequest = true
+                                }
+                            }
+                            lastTapTime = currentTime
+                        }
+                    )
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = "Доб. событие $day $monthName",
+                    color = Color.Gray
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        FloatingActionButton(
+            onClick = { onAddNote(selectedDay) },
+            containerColor = MaterialTheme.colorScheme.primary,
+            shape = CircleShape
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Добавить заметку")
+        }
+    }
+
+    // Очистка при закрытии
+    DisposableEffect(Unit) {
+        onDispose {
+            speechRecognizer.destroy()
+        }
+    }
+
+    // Обработка клика вне поля ввода
+    BackHandler(enabled = showQuickInput) {
+        showQuickInput = false
+        quickNoteText = ""
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        if (isListening) {
+            speechRecognizer.stopListening()
+        }
+    }
+}
+
 // --- Основной экран календаря с свайпом ---
 @Composable
 fun CalendarScreen(
@@ -398,7 +655,6 @@ fun CalendarScreen(
                 }
                 .background(Color(0xFF121212))
                 .padding(horizontal = 8.dp, vertical = 8.dp)
-                .padding(bottom = 48.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -426,60 +682,22 @@ fun CalendarScreen(
             }
         }
 
-        // Нижняя панель с текстом и круглой кнопкой
-        val day = selectedDay.dayOfMonth.toString()
-        val monthName = selectedDay.month.getDisplayName(TextStyle.SHORT, Locale("ru"))
-            .replaceFirstChar { it.uppercase() }
-
-        Row(
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
         ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .border(
-                        width = 1.dp,
-                        color = Color.White,
-                        shape = RoundedCornerShape(24.dp)
-                    )
-                    .background(Color.DarkGray.copy(alpha = 0.7f), shape = RoundedCornerShape(24.dp))
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(
-                    text = "Доб. событие $day $monthName",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(Color(0xFF1565C0), shape = CircleShape)
-                    .clickable { onAddNote(selectedDay) },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Добавить событие",
-                    tint = Color.White
-                )
-            }
+            QuickInputSection(
+                selectedDay = selectedDay,
+                viewModel = viewModel,
+                onAddNote = onAddNote
+            )
         }
 
-        // Диалог с заметками
         if (showNotesDialog) {
             NotesDialog(
                 notes = uiState.notes[selectedDay] ?: emptyList(),
-                onDismiss = { viewModel.toggleNotesDialog() },
+                onDismiss = viewModel::toggleNotesDialog,
                 onNoteClick = { note ->
                     viewModel.toggleNotesDialog()
                     onEditNote(note)
