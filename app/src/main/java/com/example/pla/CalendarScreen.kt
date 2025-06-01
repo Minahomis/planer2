@@ -381,7 +381,13 @@ fun ContentItem(
                     color = if (isToday) Color(0xFF1565C0) else Color.Transparent,
                     shape = RoundedCornerShape(50)
                 )
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(
+                    start = if (date.dayOfMonth.length == 1) 12.dp else 8.dp,
+                    end = 8.dp,
+                    top = 4.dp,
+                    bottom = 4.dp
+                ),
+            textAlign = TextAlign.End
         )
 
         // Заметки
@@ -433,7 +439,7 @@ fun Content(
                         isSunday = (dayIndex == 6),
                         modifier = Modifier
                             .weight(1f)
-                            .height(120.dp)
+                            .height(103.dp)
                             .padding(2.dp),
                         isToday = isToday,
                         isSelected = isSelected
@@ -452,46 +458,45 @@ fun QuickInputSection(
     viewModel: CalendarViewModel,
     onAddNote: (LocalDate) -> Unit
 ) {
-    var showQuickInput by remember { mutableStateOf(false) }
-    var quickNoteText by remember { mutableStateOf("") }
-    var showPermissionRequest by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    // Создаем и запоминаем SpeechRecognizerManager
+    
+    var showQuickInput by remember { mutableStateOf(false) }
+    var quickNoteText by remember { mutableStateOf("") }
+    var lastTapTime by remember { mutableStateOf(0L) }
+    var showPermissionRequest by remember { mutableStateOf(false) }
+    
     val speechRecognizer = remember { SpeechRecognizerManager(context) }
+    val permissionManager = remember { PermissionManager(context) }
     val isListening by speechRecognizer.isListening.collectAsState()
     val recognizedText by speechRecognizer.recognizedText.collectAsState()
-    val permissionManager = remember { PermissionManager(context) }
 
-    // Обработка распознанного текста
     LaunchedEffect(recognizedText) {
-        if (recognizedText.isNotEmpty()) {
+        if (recognizedText.isNotEmpty() && recognizedText != quickNoteText) {
             quickNoteText = recognizedText
         }
     }
 
     if (showPermissionRequest) {
-        RequestRecordPermission {
-            showPermissionRequest = false
-            speechRecognizer.startListening()
-        }
+        RequestRecordPermission(
+            onPermissionGranted = {
+                showPermissionRequest = false
+                speechRecognizer.startListening()
+            },
+            onDismiss = { showPermissionRequest = false }
+        )
     }
 
-    val day = selectedDay.dayOfMonth.toString()
+    val day = selectedDay.dayOfMonth
     val monthName = selectedDay.month.getDisplayName(TextStyle.SHORT, Locale("ru"))
-        .replaceFirstChar { it.uppercase() }
-
-    // Для отслеживания двойного нажатия
-    var lastTapTime by remember { mutableStateOf(0L) }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 24.dp),
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showQuickInput) {
@@ -562,14 +567,18 @@ fun QuickInputSection(
                         color = Color.White,
                         shape = RoundedCornerShape(24.dp)
                     )
-                    .background(Color.DarkGray.copy(alpha = 0.7f), shape = RoundedCornerShape(24.dp))
+                    .background(
+                        color = if (isListening) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        else Color.DarkGray.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(24.dp)
+                    )
                     .combinedClickable(
                         onClick = { showQuickInput = true },
                         onDoubleClick = {
                             val currentTime = System.currentTimeMillis()
                             if (currentTime - lastTapTime < 3000) { // 3 секунды для двойного нажатия
-                                showQuickInput = true
                                 if (permissionManager.hasRecordAudioPermission()) {
+                                    showQuickInput = true
                                     speechRecognizer.startListening()
                                 } else {
                                     showPermissionRequest = true
@@ -581,10 +590,24 @@ fun QuickInputSection(
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
-                Text(
-                    text = "Доб. событие $day $monthName",
-                    color = Color.Gray
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Доб. событие $day $monthName",
+                        color = if (isListening) Color.White else Color.Gray
+                    )
+                    if (isListening) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Идет запись",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
             }
         }
 

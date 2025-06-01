@@ -24,7 +24,8 @@ class PermissionManager(private val context: Context) {
 
 @Composable
 fun RequestRecordPermission(
-    onPermissionGranted: () -> Unit
+    onPermissionGranted: () -> Unit,
+    onDismiss: () -> Unit
 ) {
     var hasPermission by remember { mutableStateOf(false) }
     
@@ -34,6 +35,8 @@ fun RequestRecordPermission(
             hasPermission = isGranted
             if (isGranted) {
                 onPermissionGranted()
+            } else {
+                onDismiss()
             }
         }
     )

@@ -1,9 +1,11 @@
 package com.example.pla.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
@@ -104,27 +106,85 @@ fun AddNoteScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(paddingValues),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            NoteInputSection(
-                title = title,
-                onTitleChange = { title = it },
-                selectedColor = selectedColor,
-                onColorSelect = { selectedColor = it }
-            )
+            // Заголовок и цвета
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = if (noteId == null) "Новая заметка" else "Редактирование заметки",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        placeholder = { Text("Название заметки") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = selectedColor,
+                            unfocusedBorderColor = selectedColor.copy(alpha = 0.5f)
+                        ),
+                        textStyle = MaterialTheme.typography.bodyLarge
+                    )
 
-            Divider()
+                    ColorSelector(
+                        selectedColor = selectedColor,
+                        onColorSelect = { selectedColor = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
 
-            DateTimeSection(
-                startDate = startDate,
-                endDate = endDate,
-                startTime = startTime,
-                endTime = endTime,
-                onStartTimeClick = { showStartTimePicker = true },
-                onEndTimeClick = { showEndTimePicker = true }
-            )
+            // Дата и время
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Время и дата",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    DateTimeSection(
+                        startDate = startDate,
+                        endDate = endDate,
+                        startTime = startTime,
+                        endTime = endTime,
+                        onStartTimeClick = { showStartTimePicker = true },
+                        onEndTimeClick = { showEndTimePicker = true },
+                        selectedColor = selectedColor
+                    )
+                }
+            }
         }
 
         if (showStartTimePicker) {
@@ -166,78 +226,72 @@ private fun AddNoteTopBar(
         title = { },
         navigationIcon = {
             IconButton(onClick = onClose) {
-                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Закрыть",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
             }
         },
         actions = {
             if (noteId != null) {
                 TextButton(onClick = onDelete) {
-                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        "Удалить",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
             }
             TextButton(
                 onClick = onSave,
                 enabled = title.isNotBlank()
             ) {
-                Text(if (noteId == null) "Сохранить" else "Обновить")
+                Text(
+                    if (noteId == null) "Сохранить" else "Обновить",
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
         }
     )
 }
 
 @Composable
-private fun NoteInputSection(
-    title: String,
-    onTitleChange: (String) -> Unit,
-    selectedColor: Color,
-    onColorSelect: (Color) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        OutlinedTextField(
-            value = title,
-            onValueChange = onTitleChange,
-            placeholder = { Text("Название заметки") },
-            modifier = Modifier.weight(1f),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent
-            )
-        )
-        
-        ColorSelector(
-            selectedColor = selectedColor,
-            onColorSelect = onColorSelect
-        )
-    }
-}
-
-@Composable
 private fun ColorSelector(
     selectedColor: Color,
-    onColorSelect: (Color) -> Unit
+    onColorSelect: (Color) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(start = 8.dp)
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        colors.forEach { color ->
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .background(color, CircleShape)
-                    .clickable { onColorSelect(color) }
-            ) {
-                if (color == selectedColor) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(6.dp)
-                            .background(Color.White, CircleShape)
-                    )
+        Text(
+            text = "Цвет заметки",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+        )
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            colors.forEach { color ->
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(color, CircleShape)
+                        .clickable { onColorSelect(color) }
+                        .padding(2.dp)
+                ) {
+                    if (color == selectedColor) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp)
+                                .background(Color.White, CircleShape)
+                        )
+                    }
                 }
             }
         }
@@ -251,20 +305,46 @@ private fun DateTimeSection(
     startTime: LocalTime,
     endTime: LocalTime,
     onStartTimeClick: () -> Unit,
-    onEndTimeClick: () -> Unit
+    onEndTimeClick: () -> Unit,
+    selectedColor: Color
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        DateTimeRow(
-            date = startDate,
-            time = startTime,
-            onTimeClick = onStartTimeClick
-        )
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Начало",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            DateTimeRow(
+                date = startDate,
+                time = startTime,
+                onTimeClick = onStartTimeClick,
+                selectedColor = selectedColor
+            )
+        }
         
-        DateTimeRow(
-            date = endDate,
-            time = endTime,
-            onTimeClick = onEndTimeClick
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Конец",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            DateTimeRow(
+                date = endDate,
+                time = endTime,
+                onTimeClick = onEndTimeClick,
+                selectedColor = selectedColor
+            )
+        }
     }
 }
 
@@ -272,19 +352,37 @@ private fun DateTimeSection(
 private fun DateTimeRow(
     date: LocalDate,
     time: LocalTime,
-    onTimeClick: () -> Unit
+    onTimeClick: () -> Unit,
+    selectedColor: Color
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "${date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())}, " +
-                  "${date.format(DateTimeFormatter.ofPattern("d MMMM"))}"
+            text = date.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface
         )
-        TextButton(onClick = onTimeClick) {
-            Text(time.format(DateTimeFormatter.ofPattern("HH:mm")))
+        
+        TextButton(
+            onClick = onTimeClick,
+            colors = ButtonDefaults.textButtonColors(
+                contentColor = selectedColor
+            )
+        ) {
+            Text(
+                text = time.format(DateTimeFormatter.ofPattern("HH:mm")),
+                style = MaterialTheme.typography.bodyLarge
+            )
         }
     }
 }
