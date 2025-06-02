@@ -56,8 +56,20 @@ fun AddNoteScreen(
     var title by remember { mutableStateOf("") }
     var startDate by remember { mutableStateOf(selectedDate) }
     var endDate by remember { mutableStateOf(selectedDate) }
-    var startTime by remember { mutableStateOf(LocalTime.now()) }
-    var endTime by remember { mutableStateOf(LocalTime.now().plusHours(1)) }
+
+    // Установка начального времени
+    val isToday = selectedDate == LocalDate.now()
+    val initialStartTime = if (isToday) {
+        val now = LocalTime.now()
+        // Округляем до следующего часа через 2 часа
+        LocalTime.of(now.hour + 2, 0)
+    } else {
+        LocalTime.of(8, 0) // 8:00 для несегодняшних дат
+    }
+    val initialEndTime = initialStartTime.plusHours(1) // На час позже начального времени
+
+    var startTime by remember { mutableStateOf(initialStartTime) }
+    var endTime by remember { mutableStateOf(initialEndTime) }
     var selectedColor by remember { mutableStateOf(colors[0]) }
     var showStartTimePicker by remember { mutableStateOf(false) }
     var showEndTimePicker by remember { mutableStateOf(false) }
@@ -131,7 +143,7 @@ fun AddNoteScreen(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    
+
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },

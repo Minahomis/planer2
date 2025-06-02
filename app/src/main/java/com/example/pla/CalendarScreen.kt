@@ -54,6 +54,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import com.example.pla.utils.SpeechRecognizerManager
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.style.TextOverflow
 import com.example.pla.utils.PermissionManager
 import com.example.pla.utils.RequestRecordPermission
 
@@ -450,7 +454,6 @@ fun Content(
         }
     }
 }
-
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun QuickInputSection(
@@ -462,12 +465,13 @@ fun QuickInputSection(
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    
+    val focusRequester = remember { FocusRequester() }
+
     var showQuickInput by remember { mutableStateOf(false) }
     var quickNoteText by remember { mutableStateOf("") }
     var lastTapTime by remember { mutableStateOf(0L) }
     var showPermissionRequest by remember { mutableStateOf(false) }
-    
+
     val speechRecognizer = remember { SpeechRecognizerManager(context) }
     val permissionManager = remember { PermissionManager(context) }
     val isListening by speechRecognizer.isListening.collectAsState()
@@ -476,6 +480,14 @@ fun QuickInputSection(
     LaunchedEffect(recognizedText) {
         if (recognizedText.isNotEmpty() && recognizedText != quickNoteText) {
             quickNoteText = recognizedText
+        }
+    }
+
+    LaunchedEffect(showQuickInput) {
+        if (showQuickInput) {
+            focusRequester.requestFocus()
+            kotlinx.coroutines.delay(100)
+            keyboardController?.show()
         }
     }
 
@@ -499,105 +511,101 @@ fun QuickInputSection(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (showQuickInput) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(56.dp) // Увеличена высота для вмещения текста
+                .clip(RoundedCornerShape(24.dp))
+                .border(
+                    width = 1.dp,
+                    color = Color.White,
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .background(
+                    color = if (isListening) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                    else Color.DarkGray.copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(24.dp)
+                )
+        ) {
             Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedTextField(
-                    value = quickNoteText,
-                    onValueChange = { quickNoteText = it },
-                    placeholder = { Text("Например: 'Встреча в 15' или 'Обед с 13 до 14 цвет зеленый'") },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            if (quickNoteText.isNotBlank()) {
-                                scope.launch {
-                                    viewModel.saveQuickNote(quickNoteText, selectedDay)
-                                    quickNoteText = ""
-                                    showQuickInput = false
-                                    keyboardController?.hide()
-                                    focusManager.clearFocus()
-                                }
-                            }
-                        }
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.White,
-                        unfocusedBorderColor = Color.White,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedPlaceholderColor = Color.Gray,
-                        unfocusedPlaceholderColor = Color.Gray
-                    ),
-                    trailingIcon = {
-                        IconButton(
-                            onClick = {
-                                if (isListening) {
-                                    speechRecognizer.stopListening()
-                                } else {
-                                    if (permissionManager.hasRecordAudioPermission()) {
-                                        speechRecognizer.startListening()
-                                    } else {
-                                        showPermissionRequest = true
+                if (showQuickInput) {
+                    TextField(
+                        value = quickNoteText,
+                        onValueChange = { quickNoteText = it },
+                        placeholder = {
+                            Text(
+                                text = "Например: 'Встреча в 15' или 'Обед с 13 до 14 цвет зеленый'",
+                                color = Color.Gray,
+                                fontSize = 14.sp, // Уменьшен шрифт для лучшей посадки
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focusRequester),
+                        maxLines = 1, // Заменяет singleLine
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (quickNoteText.isNotBlank()) {
+                                    scope.launch {
+                                        viewModel.saveQuickNote(quickNoteText, selectedDay)
+                                        quickNoteText = ""
+                                        showQuickInput = false
+                                        keyboardController?.hide()
+                                        focusManager.clearFocus()
                                     }
                                 }
                             }
-                        ) {
-                            Icon(
-                                imageVector = if (isListening) Icons.Default.Mic else Icons.Default.MicOff,
-                                contentDescription = if (isListening) "Остановить запись" else "Начать запись",
-                                tint = if (isListening) MaterialTheme.colorScheme.primary else Color.Gray
-                            )
-                        }
-                    }
-                )
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .border(
-                        width = 1.dp,
-                        color = Color.White,
-                        shape = RoundedCornerShape(24.dp)
+                        ),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedPlaceholderColor = Color.Gray,
+                            unfocusedPlaceholderColor = Color.Gray
+                        ),
+                        textStyle = LocalTextStyle.current.copy(fontSize = 14.sp) // Уменьшен шрифт для ввода
                     )
-                    .background(
-                        color = if (isListening) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                        else Color.DarkGray.copy(alpha = 0.7f),
-                        shape = RoundedCornerShape(24.dp)
-                    )
-                    .combinedClickable(
-                        onClick = { showQuickInput = true },
-                        onDoubleClick = {
-                            val currentTime = System.currentTimeMillis()
-                            if (currentTime - lastTapTime < 3000) { // 3 секунды для двойного нажатия
+                    IconButton(
+                        onClick = {
+                            if (isListening) {
+                                speechRecognizer.stopListening()
+                            } else {
                                 if (permissionManager.hasRecordAudioPermission()) {
-                                    showQuickInput = true
                                     speechRecognizer.startListening()
                                 } else {
                                     showPermissionRequest = true
                                 }
                             }
-                            lastTapTime = currentTime
                         }
-                    )
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                    ) {
+                        Icon(
+                            imageVector = if (isListening) Icons.Default.Mic else Icons.Default.MicOff,
+                            contentDescription = if (isListening) "Остановить запись" else "Начать запись",
+                            tint = if (isListening) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    }
+                } else {
                     Text(
                         text = "Доб. событие $day $monthName",
-                        color = if (isListening) Color.White else Color.Gray
+                        color = Color.White,
+                        fontSize = 14.sp, // Согласован с TextField
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 12.dp)
                     )
                     if (isListening) {
                         Icon(
@@ -608,6 +616,29 @@ fun QuickInputSection(
                         )
                     }
                 }
+            }
+            if (!showQuickInput) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .combinedClickable(
+                            onClick = {
+                                showQuickInput = true
+                            },
+                            onDoubleClick = {
+                                val currentTime = System.currentTimeMillis()
+                                if (currentTime - lastTapTime < 3000) {
+                                    if (permissionManager.hasRecordAudioPermission()) {
+                                        showQuickInput = true
+                                        speechRecognizer.startListening()
+                                    } else {
+                                        showPermissionRequest = true
+                                    }
+                                }
+                                lastTapTime = currentTime
+                            }
+                        )
+                )
             }
         }
 
@@ -622,14 +653,12 @@ fun QuickInputSection(
         }
     }
 
-    // Очистка при закрытии
     DisposableEffect(Unit) {
         onDispose {
             speechRecognizer.destroy()
         }
     }
 
-    // Обработка клика вне поля ввода
     BackHandler(enabled = showQuickInput) {
         showQuickInput = false
         quickNoteText = ""
@@ -640,7 +669,6 @@ fun QuickInputSection(
         }
     }
 }
-
 // --- Основной экран календаря с свайпом ---
 @Composable
 fun CalendarScreen(
@@ -696,9 +724,17 @@ fun CalendarScreen(
                     selectedDay = selectedDay,
                     notes = uiState.notes,
                     onDateClickListener = { date ->
-                        viewModel.selectDate(date, uiState.yearMonth)
-                        if (uiState.notes[selectedDay]?.isNotEmpty() == true) {
-                            viewModel.toggleNotesDialog()
+                        if (date.dayOfMonth.isNotEmpty()) {
+                            val clickedDate = LocalDate.of(
+                                uiState.yearMonth.year,
+                                uiState.yearMonth.monthValue,
+                                date.dayOfMonth.toInt()
+                            )
+                            viewModel.selectDate(date, uiState.yearMonth)
+                            // Проверяем заметки для новой даты
+                            if (uiState.notes[clickedDate]?.isNotEmpty() == true) {
+                                viewModel.toggleNotesDialog()
+                            }
                         }
                     }
                 )
